@@ -15,18 +15,19 @@ gamma_: float = .1
 if __name__ == "__main__":
     # parallel.compute_using_threading(epochs, latent_dims, tau_, lambda_, gamma_)
     # parallel.compute_using_multiprocessing(epochs, latent_dims, tau_, lambda_, gamma_)
-    test = SparseMatrix(
-        data_path=small_data_path,
-        sep="\t",
-        split_ratio=.2,
-        n_iter=10,
-        dims=5,
-        tau=.01,
-        lambd=.01,
-        gamma=.01,
-        mu=.0,
-        save_figures=True,
-    )
-    test.perform_als(dims=3, tau=0.01, lambd=0.01, gamma=0.01)
+    
+    # test = SparseMatrix(
+    #     data_path=small_data_path,
+    #     sep="\t",
+    #     split_ratio=.2,
+    #     n_iter=10,
+    #     dims=5,
+    #     tau=.01,
+    #     lambd=.01,
+    #     gamma=.01,
+    #     mu=.0,
+    #     save_figures=True,
+    # )
+    # test.perform_als(dims=3, tau=0.01, lambd=0.01, gamma=0.01)
 
 
