@@ -1,0 +1,4 @@
+matplotlib~=3.5.1
+numpy~=1.19.5
+joblib~=1.1.0
+timebudget==0.7.1
