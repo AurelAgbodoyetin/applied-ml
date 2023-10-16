@@ -27,8 +27,8 @@ if __name__ == "__main__":
     # parallel.compute_using_multiprocessing(epochs, latent_dims, tau_, lambda_, gamma_)
 
     test_parallel = SparseMatrix(
-        data_path=data_20m_path,
-        sep=sep_20m,
+        data_path=data_100k_path,
+        sep=sep_100k,
         skip_rows=skip_rows_20m,
         split_ratio=.2,
         n_iter=1,
@@ -43,26 +43,8 @@ if __name__ == "__main__":
         show_power_law=False
     )
 
-    test_parallel = SparseMatrix(
-        data_path=data_20m_path,
-        sep=sep_20m,
-        skip_rows=skip_rows_20m,
-        split_ratio=.2,
-        n_iter=1,
-        dims=3,
-        tau=.01,
-        lambd=.01,
-        gamma=.01,
-        mu=.0,
-        save_figures=True,
-        parallel_extraction=True,
-        parallel_indexing=False,
-        show_power_law=False
-    )
-
     print("Done")
     pass
-
 
     # test.perform_als(is_parallel=False)
     # test.perform_als(is_parallel=False)

@@ -1,10 +1,10 @@
 from typing import List
 import itertools as it
 import multiprocessing as mp
-
+from timeit import timeit
 import numpy as np
 from matplotlib import pyplot as plt
-from timebudget import timebudget
+#from timebudget import timebudget
 
 from custom_types import blob_type, dict_type, np_type
 from utils import get_empty_blob
@@ -14,7 +14,8 @@ figures_path = "figures"
 
 
 class SparseMatrix:
-    @timebudget
+    #@timebudget
+    @timeit
     def __init__(self, data_path: str, sep: str = ",", skip_rows: int = 0, split_ratio: float = .2, n_iter: int = 20,
                  dims: int = 3, parallel_extraction: bool = False, parallel_als: bool = False, tau: float = .01,
                  lambd: float = .01, gamma: float = .01, mu: float = .0, save_figures=False, show_power_law=False,
@@ -83,7 +84,8 @@ class SparseMatrix:
         if iid not in self.item_indexes:
             self.item_indexes[iid] = len(self.item_indexes)
 
-    @timebudget
+    #@timebudget
+    @timeit
     def index_data_file(self, lines: List[str]) -> None:
         print("Started indexing")
         if self.parallel_indexing:
@@ -95,7 +97,8 @@ class SparseMatrix:
             for line in lines:
                 self.index_line(line)
 
-    @timebudget
+    #@timebudget
+    @timeit
     def extract_set_ds(self, lines: List[str], is_test: bool = False, is_whole: bool = False) -> None:
         print(f"Started extraction whole: {is_whole} test: {is_test}")
         test_split_size = int(np.round(len(lines) * self.split_ratio))
@@ -234,7 +237,8 @@ class SparseMatrix:
         L: np_type = np.linalg.cholesky(A)
         return np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
 
-    @timebudget
+    #@timebudget
+    @timeit
     def perform_als(self, is_parallel: bool, dims=None, tau=None, lambd=None, gamma=None) -> None:
         if dims is not None:
             self.latent_dims = dims

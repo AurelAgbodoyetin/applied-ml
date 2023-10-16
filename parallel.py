@@ -1,7 +1,7 @@
 import threading
 import multiprocessing as mp
 from typing import List
-from timebudget import timebudget
+# from timebudget import timebudget
 
 from sparse_matrix import SparseMatrix
 
@@ -24,7 +24,8 @@ def get_sparse_matrices(data_path: str, epochs: int, dims: List[int], tau_: floa
     ]
 
 
-@timebudget
+#@timebudget
+@timeit
 def compute_using_threading(data_path: str, epochs: int, dims: List[int], tau_: float, lambda_: float, gamma_: float):
     sparse_matrices: List[SparseMatrix] = get_sparse_matrices(data_path, epochs, dims, tau_, lambda_, gamma_)
 
@@ -36,7 +37,8 @@ def compute_using_threading(data_path: str, epochs: int, dims: List[int], tau_: 
         thread.start()
 
 
-@timebudget
+# @timebudget
+@timeit
 def compute_using_multiprocessing(data_path: str, epochs: int, dims: List[int], tau_: float, lambda_: float,
                                   gamma_: float):
     sparse_matrices: List[SparseMatrix] = get_sparse_matrices(data_path, epochs, dims, tau_, lambda_, gamma_)
