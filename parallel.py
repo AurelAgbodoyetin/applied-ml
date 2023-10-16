@@ -3,14 +3,13 @@ import multiprocessing as mp
 from typing import List
 from timebudget import timebudget
 
-from main import small_data_path
 from sparse_matrix import SparseMatrix
 
 
-def get_sparse_matrices(epochs:int, dims:List[int], tau_:float,  lambda_:float, gamma_:float):
+def get_sparse_matrices(data_path: str, epochs: int, dims: List[int], tau_: float, lambda_: float, gamma_: float):
     return [
         SparseMatrix(
-            data_path=small_data_path,
+            data_path=data_path,
             sep="\t",
             split_ratio=.2,
             n_iter=epochs,
@@ -26,8 +25,8 @@ def get_sparse_matrices(epochs:int, dims:List[int], tau_:float,  lambda_:float, 
 
 
 @timebudget
-def compute_using_threading(epochs:int, dims:List[int], tau_:float,  lambda_:float, gamma_:float):
-    sparse_matrices: List[SparseMatrix] = get_sparse_matrices(epochs, dims, tau_, lambda_, gamma_)
+def compute_using_threading(data_path: str, epochs: int, dims: List[int], tau_: float, lambda_: float, gamma_: float):
+    sparse_matrices: List[SparseMatrix] = get_sparse_matrices(data_path, epochs, dims, tau_, lambda_, gamma_)
 
     threads: List[threading.Thread] = [
         threading.Thread(target=matrix.perform_als) for matrix in sparse_matrices
@@ -38,8 +37,9 @@ def compute_using_threading(epochs:int, dims:List[int], tau_:float,  lambda_:flo
 
 
 @timebudget
-def compute_using_multiprocessing(epochs:int, dims:List[int], tau_:float,  lambda_:float, gamma_:float):
-    sparse_matrices: List[SparseMatrix] = get_sparse_matrices(epochs, dims, tau_, lambda_, gamma_)
+def compute_using_multiprocessing(data_path: str, epochs: int, dims: List[int], tau_: float, lambda_: float,
+                                  gamma_: float):
+    sparse_matrices: List[SparseMatrix] = get_sparse_matrices(data_path, epochs, dims, tau_, lambda_, gamma_)
 
     processes: List[mp.Process] = [
         mp.Process(target=matrix.perform_als) for matrix in sparse_matrices
