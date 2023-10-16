@@ -1,12 +1,12 @@
 from typing import List
 import itertools as it
-import multiprocessing as mp
-from timeit import timeit
+import multiprocessing.pool as mp
 import numpy as np
 from matplotlib import pyplot as plt
-#from timebudget import timebudget
+from utils import save
+from timebudget import timebudget
 
-from custom_types import blob_type, dict_type, np_type
+from custom_types import blob_type, dict_type
 from utils import get_empty_blob
 
 np.random.seed(seed=42)
@@ -14,61 +14,46 @@ figures_path = "figures"
 
 
 class DataProvider:
-    #@timebudget
-    @timeit
-    def __init__(self, data_path: str, sep: str = ",", skip_rows: int = 0, split_ratio: float = .2, 
-                parallel_extraction: bool = False, parallel_als: bool = False, save_figures=False, 
-                show_power_law=False, parallel_indexing: bool = False):
+    @timebudget
+    def __init__(self, data_path: str, sep: str = ",", skip_rows: int = 0, split_ratio: float = .2, dump: bool = False,
+                 parallel: bool = False, save_figures=False, show_power_law=False):
 
         self.data_path: str = data_path
         self.sep: str = sep
+        self.dump = dump
         self.skip_rows: int = skip_rows
         self.save_figures: bool = save_figures
-        self.parallel_extraction: bool = parallel_extraction
-        self.parallel_als: bool = parallel_als
-        self.parallel_indexing: bool = parallel_indexing
-
-        # Initializing model hyper parameters
-        self.epochs: int = n_iter
+        self.parallel: bool = parallel
         self.split_ratio: float = split_ratio
-        self.latent_dims: int = dims
-        self.tau_: float = tau
-        self.lambda_: float = lambd
-        self.gamma_: float = gamma
-        self.mu: float = mu
-        self.sigma: float = np.sqrt(5 / np.sqrt(dims))
-        self.history = {"training_losses": [], "training_rmse": [], "testing_rmse": []}
+        self.file_lines: List[str] = []
 
-        file_lines: List[str] = self.read_file()
-        self.index_data_file(lines=file_lines)
-        
         self.item_indexes: dict_type = dict()
+        self.user_indexes: dict_type = dict()
+
+        self.read_file()
+        self.index_data_file(lines=self.file_lines)
+
         self.item_data_blob: blob_type = get_empty_blob(len(self.item_indexes))
         self.item_training_set: blob_type = get_empty_blob(len(self.item_indexes))
         self.item_testing_set: blob_type = get_empty_blob(len(self.item_indexes))
 
-        self.user_indexes: dict_type = dict()
         self.user_data_blob: blob_type = get_empty_blob(len(self.user_indexes))
         self.user_training_set: blob_type = get_empty_blob(len(self.user_indexes))
         self.user_testing_set: blob_type = get_empty_blob(len(self.user_indexes))
 
-        self.extract_set_ds(file_lines, is_whole=True)
-        self.extract_set_ds(file_lines, is_test=True)
-        self.extract_set_ds(file_lines, is_test=False)
-
         if show_power_law:
             self.plot_all_file_ds()
 
-    def read_file(self) -> List[str]:
+    def read_file(self):
         file = open(self.data_path, "r", encoding="ISO-8859-1")
         lines = file.readlines()
         file.close()
         lines = lines[self.skip_rows:]
         np.random.shuffle(lines)
-        return lines
+        self.file_lines = lines
 
     def index_line(self, line: str) -> None:
-        content = line.split(self.sep)
+        content: List[str] = line.split(self.sep)
         uid: str = content[0]
         iid: str = content[1]
 
@@ -78,31 +63,25 @@ class DataProvider:
         if iid not in self.item_indexes:
             self.item_indexes[iid] = len(self.item_indexes)
 
-    #@timebudget
-    @timeit
+    @timebudget
     def index_data_file(self, lines: List[str]) -> None:
         print("Started indexing")
-        if self.parallel_indexing:
-            pool = mp.Pool(processes=mp.cpu_count())
-            pool.map(self.index_line, lines)
-            pool.close()
-            pool.join()
-        else:
-            for line in lines:
-                self.index_line(line)
+        for line in lines:
+            self.index_line(line)
 
-    #@timebudget
-    @timeit
+        if self.dump:
+            save(data=self.user_indexes, path="joblib_dumps/user_indexes.joblib")
+            save(data=self.item_indexes, path="joblib_dumps/item_indexes.joblib")
+
+    @timebudget
     def extract_set_ds(self, lines: List[str], is_test: bool = False, is_whole: bool = False) -> None:
         print(f"Started extraction whole: {is_whole} test: {is_test}")
         test_split_size = int(np.round(len(lines) * self.split_ratio))
         data_to_use = lines if is_whole else lines[-test_split_size:] if is_test else lines[:-test_split_size]
 
-        if self.parallel_extraction:
-            pool = mp.Pool(processes=mp.cpu_count())
-            pool.starmap(self.get_data_from_line, zip(data_to_use, it.repeat(is_test), it.repeat(is_whole)))
-            pool.close()
-            pool.join()
+        if self.parallel:
+            with mp.ThreadPool(1) as pool:
+                pool.starmap(self.get_data_from_line, zip(data_to_use, it.repeat(is_test), it.repeat(is_whole)))
         else:
             for line in data_to_use:
                 self.get_data_from_line(line, is_test, is_whole)
@@ -155,7 +134,22 @@ class DataProvider:
 
         if self.save_figures:
             plt.savefig(f'{figures_path}/power_law.pdf')
-            # files.download('power_law.pdf')
         plt.show()
 
-    
+    def extract_all_file_ds(self):
+        self.extract_set_ds(self.file_lines, is_whole=True)
+        if self.dump:
+            save(data=self.user_data_blob, path="joblib_dumps/user_data_blob.joblib")
+            save(data=self.item_data_blob, path="joblib_dumps/item_data_blob.joblib")
+
+    def extract_train_set_ds(self):
+        self.extract_set_ds(self.file_lines, is_whole=False, is_test=False)
+        if self.dump:
+            save(data=self.user_training_set, path="joblib_dumps/user_training_set.joblib")
+            save(data=self.item_training_set, path="joblib_dumps/item_training_set.joblib")
+
+    def extract_test_set_ds(self):
+        self.extract_set_ds(self.file_lines, is_test=True)
+        if self.dump:
+            save(data=self.user_testing_set, path="joblib_dumps/user_testing_set.joblib")
+            save(data=self.item_testing_set, path="joblib_dumps/item_testing_set.joblib")

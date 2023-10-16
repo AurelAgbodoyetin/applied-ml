@@ -1,4 +1,4 @@
 figures/
-data/25m/
 .idea/
 __pycache__/
+joblib_dumps/
