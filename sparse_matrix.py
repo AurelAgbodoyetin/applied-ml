@@ -130,13 +130,15 @@ class SparseMatrix:
         return np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
 
     @timebudget
-    def perform_als(self, is_parallel: bool, dims=None, tau=None, lambd=None, gamma=None) -> None:
+    def perform_als(self, parallel=None, dims=None, tau=None, lambd=None, gamma=None, epochs=None) -> None:
         if dims is not None:
             self.latent_dims = dims
             self.user_vector = np.random.normal(self.mu, self.sigma, size=(len(self.user_indexes), self.latent_dims))
             self.item_vector = np.random.normal(self.mu, self.sigma, size=(len(self.item_indexes), self.latent_dims))
 
         self.tau_ = self.tau_ if tau is None else tau
+        self.epochs = self.epochs if epochs is None else epochs
+        self.parallel = self.parallel if parallel is None else parallel
         self.lambda_ = self.lambda_ if lambd is None else lambd
         self.gamma_ = self.gamma_ if gamma is None else gamma
         self.history = {"training_losses": [], "training_rmse": [], "testing_rmse": []}
@@ -146,7 +148,7 @@ class SparseMatrix:
         number_of_items: int = len(self.item_indexes)
 
         for epoch in range(self.epochs):
-            if is_parallel:
+            if self.parallel:
                 pool: mp.Pool = mp.Pool(processes=10)
                 self.user_biases = pool.map(self.update_user_bias, list(range(number_of_users)), chunksize=10)
                 self.item_biases = pool.map(self.update_item_bias, list(range(number_of_items)), chunksize=10)
