@@ -1,21 +1,21 @@
 from typing import List
-import multiprocessing as mp
 import numpy as np
 from matplotlib import pyplot as plt
 from timebudget import timebudget
-from utils import load
+from joblib import Parallel, delayed
+from utils import Filename, divide_chunks, load
 
 from custom_types import blob_type, dict_type, np_type
 
 np.random.seed(seed=42)
-figures_path = "figures"
-
 
 class SparseMatrix:
     @timebudget
-    def __init__(self, n_iter: int = 20, dims: int = 3, parallel: bool = False, tau: float = .01,
-                 lambd: float = .01, gamma: float = .01, mu: float = .0, save_figures=False):
+    def __init__(self, dataset_name: str, n_iter: int = 20, dims: int = 3, parallel: bool = False, tau: float = .01,
+                 lambd: float = .01, gamma: float = .01, mu: float = .0, save_figures=False, n_jobs: int = 2):
 
+        self.dir: str = f"joblib_dumps/{dataset_name}/"
+        self.fig_dir: str = f"figures/{dataset_name}/"
         self.user_testing_set: blob_type = []
         self.user_training_set: blob_type = []
         # self.user_data_blob: blob_type = []
@@ -35,6 +35,7 @@ class SparseMatrix:
         self.gamma_: float = gamma
         self.mu: float = mu
         self.sigma: float = np.sqrt(5 / np.sqrt(dims))
+        self.n_jobs: int = n_jobs
         self.history = {"training_losses": [], "training_rmse": [], "testing_rmse": []}
 
         self.load_data()
@@ -46,15 +47,17 @@ class SparseMatrix:
         self.item_vector = np.random.normal(self.mu, self.sigma, size=(len(self.item_indexes), self.latent_dims))
 
     def load_data(self):
-        self.item_indexes: dict_type = load("joblib_dumps/item_indexes.joblib")
-        # self.item_data_blob: blob_type = load("joblib_dumps/item_data_blob.joblib")
-        self.item_training_set: blob_type = load("joblib_dumps/item_training_set.joblib")
-        self.item_testing_set: blob_type = load("joblib_dumps/item_testing_set.joblib")
+        self.item_indexes: dict_type = load(filename=Filename.i_indexes, directory=self.dir)
+        print(f"Items : {len(self.item_indexes)}")
+        # self.item_data_blob: blob_type = load(filename=Filename.i_all, directory=self.dir)
+        self.item_training_set: blob_type = load(filename=Filename.i_train, directory=self.dir)
+        self.item_testing_set: blob_type = load(filename=Filename.i_test, directory=self.dir)
 
-        self.user_indexes: dict_type = load("joblib_dumps/user_indexes.joblib")
-        # self.user_data_blob: blob_type = load("joblib_dumps/user_data_blob.joblib")
-        self.user_training_set: blob_type = load("joblib_dumps/user_training_set.joblib")
-        self.user_testing_set: blob_type = load("joblib_dumps/user_testing_set.joblib")
+        self.user_indexes: dict_type = load(filename=Filename.u_indexes, directory=self.dir)
+        print(f"Users : {len(self.user_indexes)}")
+        # self.user_data_blob: blob_type = load(filename=Filename.u_all, directory=self.dir)
+        self.user_training_set: blob_type = load(filename=Filename.u_train, directory=self.dir)
+        self.user_testing_set: blob_type = load(filename=Filename.u_test, directory=self.dir)
 
     def log_likelihood(self) -> float:
         s: float = 0
@@ -83,51 +86,65 @@ class SparseMatrix:
         loss = loss + user_vector_term + item_vector_term + user_biases_regularizer + item_biases_regularizer
         return loss
 
-    def update_user_bias(self, user_index: int) -> float:
-        bias: float = 0
-        item_counter: int = 0
-        for (item_index, rating) in self.user_training_set[user_index]:
-            bias += self.lambda_ * (rating - self.item_biases[item_index] - np.dot(self.user_vector[user_index],
-                                                                                   self.item_vector[item_index]))
-            item_counter += 1
-        return bias / (self.lambda_ * item_counter + self.gamma_)
+    def update_user_biases(self, users: List[int]) -> np_type:
+        result: np_type = np.zeros((len(users)))
+        for index, user_index in enumerate(users):
+            bias: float = 0
+            item_counter: int = 0
+            for (item_index, rating) in self.user_training_set[user_index]:
+                bias += self.lambda_ * (rating - self.item_biases[item_index] - np.dot(self.user_vector[user_index],
+                                                                                       self.item_vector[item_index]))
+                item_counter += 1
 
-    def update_user_vector(self, user_index) -> np_type:
-        tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
-        s: np_type = np.zeros((self.latent_dims, self.latent_dims))
-        b: np_type = np.zeros(self.latent_dims)
-        for item_index, rating in self.user_training_set[user_index]:
-            s = s + np.outer(self.item_vector[item_index], self.item_vector[item_index])
-            b = b + self.item_vector[item_index, :] * (
-                    rating - self.user_biases[user_index] - self.item_biases[item_index])
+            result[index] = bias / (self.lambda_ * item_counter + self.gamma_)
+        return result
 
-        A: np_type = self.lambda_ * s + tau_matrix
-        b: np_type = self.lambda_ * b
-        L: np_type = np.linalg.cholesky(A)
-        return np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
+    def update_user_vectors(self, users: List[int]) -> np_type:
+        result: np_type = np.zeros((len(users), 3))
+        for index, user_index in enumerate(users):
+            tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
+            s: np_type = np.zeros((self.latent_dims, self.latent_dims))
+            b: np_type = np.zeros(self.latent_dims)
+            for item_index, rating in self.user_training_set[user_index]:
+                s = s + np.outer(self.item_vector[item_index], self.item_vector[item_index])
+                b = b + self.item_vector[item_index, :] * (
+                        rating - self.user_biases[user_index] - self.item_biases[item_index])
 
-    def update_item_bias(self, item_index: int) -> float:
-        bias: float = 0.0
-        user_counter: int = 0
-        for (user_index, rating) in self.item_training_set[item_index]:
-            bias += self.lambda_ * (rating - self.user_biases[user_index] - np.dot(self.user_vector[user_index],
-                                                                                   self.item_vector[item_index]))
-            user_counter += 1
-        return bias / (self.lambda_ * user_counter + self.gamma_)
+            A: np_type = self.lambda_ * s + tau_matrix
+            b: np_type = self.lambda_ * b
+            L: np_type = np.linalg.cholesky(A)
+            result[index] = np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
+        return result
 
-    def update_item_vector(self, item_index: int) -> np_type:
-        tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
-        s: np_type = np.zeros((self.latent_dims, self.latent_dims))
-        b: np_type = np.zeros(self.latent_dims)
-        for (user_index, rating) in self.item_training_set[item_index]:
-            s = s + np.outer(self.user_vector[user_index], self.user_vector[user_index])
-            b = b + self.user_vector[user_index] * (
-                    rating - self.user_biases[user_index] - self.item_biases[item_index])
+    def update_item_biases(self, items: List[int]) -> np_type:
+        result: np_type = np.zeros((len(items)))
+        for index, item_index in enumerate(items):
+            bias: float = 0.0
+            user_counter: int = 0
+            for (user_index, rating) in self.item_training_set[item_index]:
+                bias += self.lambda_ * (rating - self.user_biases[user_index] - np.dot(self.user_vector[user_index],
+                                                                                       self.item_vector[item_index]))
+                user_counter += 1
 
-        A: np_type = self.lambda_ * s + tau_matrix
-        b: np_type = self.lambda_ * b
-        L: np_type = np.linalg.cholesky(A)
-        return np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
+            result[index] = bias / (self.lambda_ * user_counter + self.gamma_)
+        return result
+
+    def update_item_vectors(self, items: List[int]) -> np_type:
+        result: np_type = np.zeros((len(items), self.latent_dims))
+        for index, item_index in enumerate(items):
+            tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
+            s: np_type = np.zeros((self.latent_dims, self.latent_dims))
+            b: np_type = np.zeros(self.latent_dims)
+            for (user_index, rating) in self.item_training_set[item_index]:
+                s = s + np.outer(self.user_vector[user_index], self.user_vector[user_index])
+                b = b + self.user_vector[user_index] * (
+                        rating - self.user_biases[user_index] - self.item_biases[item_index])
+
+            A: np_type = self.lambda_ * s + tau_matrix
+            b: np_type = self.lambda_ * b
+            L: np_type = np.linalg.cholesky(A)
+            result[index] = np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
+        return result
 
     @timebudget
     def perform_als(self, parallel=None, dims=None, tau=None, lambd=None, gamma=None, epochs=None) -> None:
@@ -149,25 +166,31 @@ class SparseMatrix:
 
         for epoch in range(self.epochs):
             if self.parallel:
-                pool: mp.Pool = mp.Pool(processes=10)
-                self.user_biases = pool.map(self.update_user_bias, list(range(number_of_users)), chunksize=10)
-                self.item_biases = pool.map(self.update_item_bias, list(range(number_of_items)), chunksize=10)
-                self.user_vector = pool.map(self.update_user_vector, list(range(number_of_users)), chunksize=10)
-                self.item_vector = pool.map(self.update_item_vector, list(range(number_of_items)), chunksize=10)
-                pool.close()
-                pool.join()
+                user_chunks: List[int] = list(divide_chunks(list(range(number_of_users)), self.n_jobs))
+                item_chunks: List[int] = list(divide_chunks(list(range(number_of_items)), self.n_jobs))
+
+                # Updating user biases
+                results = Parallel(n_jobs=self.n_jobs)(
+                    delayed(self.update_user_biases)(user_chunks[i]) for i in range(self.n_jobs))
+                self.user_biases = np.concatenate(results)
+                # Updating item biases
+                results = Parallel(n_jobs=self.n_jobs)(
+                    delayed(self.update_item_biases)(item_chunks[i]) for i in range(self.n_jobs))
+                self.item_biases = np.concatenate(results)
+                # Updating user vector
+                results = Parallel(n_jobs=self.n_jobs)(
+                    delayed(self.update_user_vectors)(user_chunks[i]) for i in range(self.n_jobs))
+                self.user_vector = np.concatenate(results, axis=0)
+                # Updating item vector
+                results = Parallel(n_jobs=self.n_jobs)(
+                    delayed(self.update_item_vectors)(item_chunks[i]) for i in range(self.n_jobs))
+                self.item_vector = np.concatenate(results, axis=0)
+
             else:
-                for m in range(number_of_users):
-                    self.user_biases[m] = self.update_user_bias(m)
-
-                for n in range(number_of_items):
-                    self.item_biases[n] = self.update_item_bias(n)
-
-                for m in range(number_of_users):
-                    self.user_vector[m] = self.update_user_vector(m)
-
-                for n in range(number_of_items):
-                    self.item_vector[n] = self.update_item_vector(n)
+                self.user_biases = self.update_user_biases(list(range(number_of_users)))
+                self.item_biases = self.update_item_biases(list(range(number_of_items)))
+                self.user_vector = self.update_user_vectors(list(range(number_of_users)))
+                self.item_vector = self.update_item_vectors(list(range(number_of_items)))
 
             loss = self.log_likelihood()
             self.history["training_losses"].append(loss)
@@ -210,7 +233,7 @@ class SparseMatrix:
 
         if self.save_figures:
             plt.savefig(
-                f'{figures_path}/losses_l_{self.lambda_}_g_{self.gamma_}_t_{self.tau_}_K_{self.latent_dims}.pdf')
+                f'{self.fig_dir}/losses_l_{self.lambda_}_g_{self.gamma_}_t_{self.tau_}_K_{self.latent_dims}.pdf')
 
         plt.show()
 
@@ -233,7 +256,7 @@ class SparseMatrix:
                 )
 
         if self.save_figures:
-            plt.savefig(f'{figures_path}/costs_l_{self.lambda_}_g_{self.gamma_}_t_{self.tau_}_K_{self.latent_dims}.pdf')
+            plt.savefig(f'{self.fig_dir}/costs_l_{self.lambda_}_g_{self.gamma_}_t_{self.tau_}_K_{self.latent_dims}.pdf')
 
         plt.show()
 
@@ -255,3 +278,16 @@ class SparseMatrix:
         targets, predictions = self.get_predictions(is_test)
         mse = np.square(np.subtract(targets, predictions)).mean()
         return np.sqrt(mse)
+
+# chunks: List[str] = list(divide_chunks(data_to_use, self.n_threads))
+# threads: List[threading.Thread] = [
+#     threading.Thread(
+#         target=self.get_data_from_line,
+#         args=(chunks, is_test, is_whole)
+#     ) for _ in range(self.n_threads)
+# ]
+# for thread in threads:
+#     thread.start()
+
+# with mp.ThreadPool(1) as pool:
+# pool.starmap(self.get_data_from_line, zip(data_to_use, it.repeat(is_test), it.repeat(is_whole)))
