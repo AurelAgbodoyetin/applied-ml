@@ -1,7 +1,5 @@
 from typing import List
-from timebudget import timebudget
 from sparse_matrix import SparseMatrix
-
 
 latent_dims: List[int] = [3, 5, 10, 20, 50, 100]
 tau_: float = .1
@@ -19,6 +17,5 @@ if __name__ == "__main__":
         mu=.0,
         save_figures=False,
     )
-    print("Done")
     test.perform_als(parallel=False)
     # test.perform_als(is_parallel=False)

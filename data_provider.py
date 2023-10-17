@@ -78,7 +78,8 @@ class DataProvider:
         data_to_use: List[str] = lines if is_whole else lines[-test_size:] if is_test else lines[:-test_size]
 
         if self.parallel:
-            Parallel(n_jobs=self.n_threads)(delayed(self.get_data_from_line)(line, is_test, is_whole) for line in data_to_use)
+            Parallel(n_jobs=self.n_threads)(
+                delayed(self.get_data_from_line)(line, is_test, is_whole) for line in data_to_use)
 
             # chunks: List[str] = list(divide_chunks(data_to_use, self.n_threads))
             # threads: List[threading.Thread] = [
@@ -165,10 +166,10 @@ class DataProvider:
         check_and_create(data=self.user_testing_set, filename=Filename.u_test.value, directory=self.current_dir)
         check_and_create(data=self.item_testing_set, filename=Filename.i_test.value, directory=self.current_dir)
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     @timebudget
-    def get_sparse_matrices_and_dump(dataset: Dataset, parallel:bool):
+    def get_sparse_matrices_and_dump(dataset: Dataset, parallel: bool):
         data_provider: DataProvider = DataProvider(
             dataset=dataset,
             split_ratio=.2,
@@ -184,9 +185,9 @@ if __name__ == "__main__":
         return data_provider
 
 
-    get_sparse_matrices_and_dump(dataset=datasets['20m'], parallel=True)
+    get_sparse_matrices_and_dump(dataset=datasets['1m'], parallel=True)
     # get_sparse_matrices_and_dump(dataset=datasets['1m'], parallel=False)
     print()
-    get_sparse_matrices_and_dump(dataset=datasets['20m'], parallel=False)
+    get_sparse_matrices_and_dump(dataset=datasets['1m'], parallel=False)
     # get_sparse_matrices_and_dump(dataset=datasets['1m'], parallel=True)
     print("Done")
