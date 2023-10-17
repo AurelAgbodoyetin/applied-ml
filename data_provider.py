@@ -169,7 +169,7 @@ class DataProvider:
 
 if __name__ == "__main__":
     @timebudget
-    def get_sparse_matrices_and_dump(dataset: Dataset, parallel: bool):
+    def get_sparse_matrices_and_dump(dataset: Dataset, parallel: bool=False):
         data_provider: DataProvider = DataProvider(
             dataset=dataset,
             split_ratio=.2,
@@ -185,9 +185,11 @@ if __name__ == "__main__":
         return data_provider
 
 
-    get_sparse_matrices_and_dump(dataset=datasets['1m'], parallel=True)
+    Parallel(n_jobs=2)(delayed(get_sparse_matrices_and_dump)(datasets['1m']))
+    print()
+    get_sparse_matrices_and_dump(dataset=datasets['1m'])
     # get_sparse_matrices_and_dump(dataset=datasets['1m'], parallel=False)
     print()
-    get_sparse_matrices_and_dump(dataset=datasets['1m'], parallel=False)
+    # get_sparse_matrices_and_dump(dataset=datasets['1m'], parallel=False)
     # get_sparse_matrices_and_dump(dataset=datasets['1m'], parallel=True)
     print("Done")
