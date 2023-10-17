@@ -173,7 +173,7 @@ if __name__ == "__main__":
         data_provider: DataProvider = DataProvider(
             dataset=dataset,
             split_ratio=.2,
-            show_power_law=True,
+            show_power_law=False,
             save_figures=True,
             parallel=parallel,
             n_threads=4,
