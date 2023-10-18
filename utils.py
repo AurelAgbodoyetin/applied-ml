@@ -4,6 +4,8 @@ import joblib
 from timebudget import timebudget
 import os
 from enum import Enum
+import numpy as np
+from multiprocessing import shared_memory
 
 
 class Filename(Enum):
@@ -47,4 +49,16 @@ def divide_chunks(data: List[Any], n: int):
     k, m = divmod(len(data), n)
     return [data[i * k + min(i, m): (i + 1) * k + min(i + 1, m)] for i in range(n)]
 
-# print(divide_chunks(range(30), 3))
+def create_shared_memory_nparray(data, name:str, dtype:np.dtype, shape:tuple):
+    d_size = np.dtype(dtype).itemsize * np.prod(shape)
+    shm = shared_memory.SharedMemory(create=True, size=d_size, name=name)
+    dst = np.ndarray(shape=shape, dtype=dtype, buffer=shm.buf)
+    dst[:] = data[:]
+    print(f'NP SIZE: {(dst.nbytes / 1024) / 1024}')
+    return shm, dst
+
+
+def release_shared(name):
+    shm = shared_memory.SharedMemory(name=name)
+    shm.close()
+    shm.unlink()

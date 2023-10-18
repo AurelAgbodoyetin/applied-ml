@@ -1,0 +1,52 @@
+    def update_user_biases(self, users: List[int]) -> None:
+        for user_index in users:
+            bias: float = 0
+            item_counter: int = 0
+            for (item_index, rating) in self.user_training_set[user_index]:
+                bias += self.lambda_ * (rating - self.item_biases[item_index] - np.dot(self.user_vector[user_index],
+                                                                                       self.item_vector[item_index]))
+                item_counter += 1
+
+            self.user_biases[user_index] = bias / (self.lambda_ * item_counter + self.gamma_)
+
+    def update_user_vectors(self, users: List[int]) -> None:
+        for user_index in users:
+            tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
+            s: np_type = np.zeros((self.latent_dims, self.latent_dims))
+            b: np_type = np.zeros(self.latent_dims)
+            for item_index, rating in self.user_training_set[user_index]:
+                s = s + np.outer(self.item_vector[item_index], self.item_vector[item_index])
+                b = b + self.item_vector[item_index, :] * (
+                        rating - self.user_biases[user_index] - self.item_biases[item_index])
+
+            A: np_type = self.lambda_ * s + tau_matrix
+            b: np_type = self.lambda_ * b
+            L: np_type = np.linalg.cholesky(A)
+            self.user_vector[user_index] = np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
+
+    def update_item_biases(self, items: List[int]) -> None:
+        for item_index in items:
+            bias: float = 0.0
+            user_counter: int = 0
+            for (user_index, rating) in self.item_training_set[item_index]:
+                bias += self.lambda_ * (rating - self.user_biases[user_index] - np.dot(self.user_vector[user_index],
+                                                                                       self.item_vector[item_index]))
+                user_counter += 1
+
+            self.item_biases[item_index] = bias / (self.lambda_ * user_counter + self.gamma_)
+
+    def update_item_vectors(self, items: List[int]) -> None:
+        for item_index in items:
+            tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
+            s: np_type = np.zeros((self.latent_dims, self.latent_dims))
+            b: np_type = np.zeros(self.latent_dims)
+            for (user_index, rating) in self.item_training_set[item_index]:
+                s = s + np.outer(self.user_vector[user_index], self.user_vector[user_index])
+                b = b + self.user_vector[user_index] * (
+                        rating - self.user_biases[user_index] - self.item_biases[item_index])
+
+            A: np_type = self.lambda_ * s + tau_matrix
+            b: np_type = self.lambda_ * b
+            L: np_type = np.linalg.cholesky(A)
+
+            self.item_vector[user_index] = np.linalg.inv(L.T) @ np.linalg.inv(L) @ b

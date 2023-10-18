@@ -2,17 +2,19 @@ from typing import List
 import numpy as np
 from matplotlib import pyplot as plt
 from timebudget import timebudget
-from joblib import Parallel, delayed
-from utils import Filename, divide_chunks, load
-
+from concurrent.futures import ThreadPoolExecutor
+from utils import Filename, load
+import tqdm
 from custom_types import blob_type, dict_type, np_type
 
 np.random.seed(seed=42)
 
+
 class SparseMatrix:
     @timebudget
     def __init__(self, dataset_name: str, n_iter: int = 20, dims: int = 3, parallel: bool = False, tau: float = .01,
-                 lambd: float = .01, gamma: float = .01, mu: float = .0, save_figures=False, n_jobs: int = 2):
+                 lambd: float = .01, gamma: float = .01, mu: float = .0, save_figures=False, n_jobs: int = 2,
+                 backend: str = "threading"):
 
         self.dir: str = f"joblib_dumps/{dataset_name}/"
         self.fig_dir: str = f"figures/{dataset_name}/"
@@ -26,6 +28,7 @@ class SparseMatrix:
         self.item_indexes: dict_type = {}
         self.save_figures: bool = save_figures
         self.parallel: bool = parallel
+        self.backend: str = backend
 
         # Initializing model hyper parameters
         self.epochs: int = n_iter
@@ -86,22 +89,17 @@ class SparseMatrix:
         loss = loss + user_vector_term + item_vector_term + user_biases_regularizer + item_biases_regularizer
         return loss
 
-    def update_user_biases(self, users: List[int]) -> np_type:
-        result: np_type = np.zeros((len(users)))
-        for index, user_index in enumerate(users):
+    def update_users(self, users:List[int]):
+        for user_index in users:
             bias: float = 0
             item_counter: int = 0
             for (item_index, rating) in self.user_training_set[user_index]:
                 bias += self.lambda_ * (rating - self.item_biases[item_index] - np.dot(self.user_vector[user_index],
-                                                                                       self.item_vector[item_index]))
+                                                                                    self.item_vector[item_index]))
                 item_counter += 1
 
-            result[index] = bias / (self.lambda_ * item_counter + self.gamma_)
-        return result
+            self.user_biases[user_index] = bias / (self.lambda_ * item_counter + self.gamma_)
 
-    def update_user_vectors(self, users: List[int]) -> np_type:
-        result: np_type = np.zeros((len(users), 3))
-        for index, user_index in enumerate(users):
             tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
             s: np_type = np.zeros((self.latent_dims, self.latent_dims))
             b: np_type = np.zeros(self.latent_dims)
@@ -113,25 +111,19 @@ class SparseMatrix:
             A: np_type = self.lambda_ * s + tau_matrix
             b: np_type = self.lambda_ * b
             L: np_type = np.linalg.cholesky(A)
-            result[index] = np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
-        return result
+            self.user_vector[user_index] = np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
 
-    def update_item_biases(self, items: List[int]) -> np_type:
-        result: np_type = np.zeros((len(items)))
-        for index, item_index in enumerate(items):
+    def update_items(self, items:List[int]):
+        for item_index in items:
             bias: float = 0.0
             user_counter: int = 0
             for (user_index, rating) in self.item_training_set[item_index]:
                 bias += self.lambda_ * (rating - self.user_biases[user_index] - np.dot(self.user_vector[user_index],
-                                                                                       self.item_vector[item_index]))
+                                                                                    self.item_vector[item_index]))
                 user_counter += 1
 
-            result[index] = bias / (self.lambda_ * user_counter + self.gamma_)
-        return result
-
-    def update_item_vectors(self, items: List[int]) -> np_type:
-        result: np_type = np.zeros((len(items), self.latent_dims))
-        for index, item_index in enumerate(items):
+            self.item_biases[item_index] = bias / (self.lambda_ * user_counter + self.gamma_)
+            
             tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
             s: np_type = np.zeros((self.latent_dims, self.latent_dims))
             b: np_type = np.zeros(self.latent_dims)
@@ -139,12 +131,13 @@ class SparseMatrix:
                 s = s + np.outer(self.user_vector[user_index], self.user_vector[user_index])
                 b = b + self.user_vector[user_index] * (
                         rating - self.user_biases[user_index] - self.item_biases[item_index])
-
+                
             A: np_type = self.lambda_ * s + tau_matrix
             b: np_type = self.lambda_ * b
             L: np_type = np.linalg.cholesky(A)
-            result[index] = np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
-        return result
+
+            self.item_vector[user_index] = np.linalg.inv(L.T) @ np.linalg.inv(L) @ b
+
 
     @timebudget
     def perform_als(self, parallel=None, dims=None, tau=None, lambd=None, gamma=None, epochs=None) -> None:
@@ -163,34 +156,14 @@ class SparseMatrix:
         # Getting data ready
         number_of_users: int = len(self.user_indexes)
         number_of_items: int = len(self.item_indexes)
-
-        for epoch in range(self.epochs):
+        for epoch in tqdm.trange(self.epochs, ascii=True):
             if self.parallel:
-                user_chunks: List[int] = list(divide_chunks(list(range(number_of_users)), self.n_jobs))
-                item_chunks: List[int] = list(divide_chunks(list(range(number_of_items)), self.n_jobs))
-
-                # Updating user biases
-                results = Parallel(n_jobs=self.n_jobs)(
-                    delayed(self.update_user_biases)(user_chunks[i]) for i in range(self.n_jobs))
-                self.user_biases = np.concatenate(results)
-                # Updating item biases
-                results = Parallel(n_jobs=self.n_jobs)(
-                    delayed(self.update_item_biases)(item_chunks[i]) for i in range(self.n_jobs))
-                self.item_biases = np.concatenate(results)
-                # Updating user vector
-                results = Parallel(n_jobs=self.n_jobs)(
-                    delayed(self.update_user_vectors)(user_chunks[i]) for i in range(self.n_jobs))
-                self.user_vector = np.concatenate(results, axis=0)
-                # Updating item vector
-                results = Parallel(n_jobs=self.n_jobs)(
-                    delayed(self.update_item_vectors)(item_chunks[i]) for i in range(self.n_jobs))
-                self.item_vector = np.concatenate(results, axis=0)
-
+                with ThreadPoolExecutor(max_workers=self.n_jobs) as executor:
+                    executor.submit(self.update_users, list(range(number_of_users)))
+                    executor.submit(self.update_items, list(range(number_of_items)))
             else:
-                self.user_biases = self.update_user_biases(list(range(number_of_users)))
-                self.item_biases = self.update_item_biases(list(range(number_of_items)))
-                self.user_vector = self.update_user_vectors(list(range(number_of_users)))
-                self.item_vector = self.update_item_vectors(list(range(number_of_items)))
+                self.update_users(list(range(number_of_users)))
+                self.update_items(list(range(number_of_items)))
 
             loss = self.log_likelihood()
             self.history["training_losses"].append(loss)
@@ -201,7 +174,7 @@ class SparseMatrix:
             testing_cost = self.rmse(is_test=True)
             self.history["testing_rmse"].append(testing_cost)
 
-            if (epoch + 1) % 10 == 0 or epoch == 0:
+            if epoch + 1 == epochs:
                 print(f"K = {self.latent_dims} --> Iteration {epoch + 1} : Loss = {-loss:.4f} , "
                       f"Training cost = {training_cost:.4f}, Testing cost = {testing_cost:.4f}")
 
@@ -279,15 +252,3 @@ class SparseMatrix:
         mse = np.square(np.subtract(targets, predictions)).mean()
         return np.sqrt(mse)
 
-# chunks: List[str] = list(divide_chunks(data_to_use, self.n_threads))
-# threads: List[threading.Thread] = [
-#     threading.Thread(
-#         target=self.get_data_from_line,
-#         args=(chunks, is_test, is_whole)
-#     ) for _ in range(self.n_threads)
-# ]
-# for thread in threads:
-#     thread.start()
-
-# with mp.ThreadPool(1) as pool:
-# pool.starmap(self.get_data_from_line, zip(data_to_use, it.repeat(is_test), it.repeat(is_whole)))

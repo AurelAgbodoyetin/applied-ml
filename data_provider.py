@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 from datasets import Dataset, datasets
 from utils import check_and_create, Filename
 from timebudget import timebudget
+from collections import Counter
 
 from custom_types import blob_type, dict_type
 from utils import get_empty_blob
@@ -99,7 +100,6 @@ class DataProvider:
                     self.item_training_set[i_index].append((self.user_indexes[uid], rating))
 
     def plot_all_file_ds(self, save_figure: bool = True) -> None:
-        fig = plt.figure(figsize=(7, 5))
         u_degrees: List[int] = [len(ratings) for ratings in self.user_data_blob]
         u_frequencies: List[int] = [u_degrees.count(degree) for degree in u_degrees]
         plt.scatter(u_degrees, u_frequencies, c="b", marker="*", s=1)
@@ -118,6 +118,20 @@ class DataProvider:
 
         if save_figure:
             plt.savefig(f'{self.fig_dir}/power_law.pdf')
+
+        plt.show()
+
+    def plot_ratings_distribution(self, save_figure: bool = True):
+        all_ratings = [rating[0] for user_ratings in self.user_data_blob for rating in user_ratings]
+        counts = Counter(all_ratings)
+        plt.bar(counts.keys(), counts.values())
+        plt.grid(color='grey', linestyle='-.', linewidth=0.5, alpha=0.5)
+        plt.xlabel("Rating")
+        plt.ylabel("Frequency of Ratings")
+        plt.title("Ratings distribution")
+
+        if save_figure:
+            plt.savefig(f'{self.fig_dir}/ratings_distribution.pdf')
 
         plt.show()
 
