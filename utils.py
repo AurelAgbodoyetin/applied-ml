@@ -1,27 +1,37 @@
 from custom_types import blob_type
 from typing import Any, List
-import joblib
+import pickle
 from timebudget import timebudget
 import os
 from enum import Enum
-import numpy as np
-from multiprocessing import shared_memory
 
 
 class Filename(Enum):
-    u_indexes = "user_indexes.joblib"
-    u_train = "user_training.joblib"
-    u_test = "user_testing.joblib"
-    u_all = "user_data_blob.joblib"
+    u_indexes = "user_indexes.pkl"
+    u_train = "user_training.pkl"
+    u_test = "user_testing.pkl"
+    u_all = "user_data_blob.pkl"
+    u_vec = "user_vector.pkl"
+    u_b = "user_biases.pkl"
 
-    i_indexes = "item_indexes.joblib"
-    i_train = "item_training.joblib"
-    i_test = "item_testing.joblib"
-    i_all = "item_data_blob.joblib"
+    i_indexes = "item_indexes.pkl"
+    i_train = "item_training.pkl"
+    i_test = "item_testing.pkl"
+    i_all = "item_data_blob.pkl"
+    i_vec = "item_vector.pkl"
+    i_b = "item_biases.pkl"
+
+    f_indexes = "feature_indexes.pkl"
+    f_n_ind = "feature_name_indexes.pkl"
+    f_ind_n = "feature_index_names.pkl"
+    f_vec = "feature_vector.pkl"
+    f_items = "feature_items_data_blob.pkl"
+    i_features = "item_features_data_blob.pkl"
 
 
-def get_empty_blob(length: int) -> blob_type:
-    blob: blob_type = []
+
+def get_empty_blob(length: int):
+    blob = []
     for i in range(length):
         blob.append([])
     return blob
@@ -37,28 +47,17 @@ def check_and_create(data: Any, filename: Filename, directory: str):
 
 @timebudget
 def save(data: Any, filename: Filename, directory: str):
-    joblib.dump(data, filename=f"{directory}{filename}")
+    with open(f"{directory}{filename}", 'wb') as file:
+        pickle.dump(data, file)
 
 
 @timebudget
 def load(filename: Filename, directory: str):
-    return joblib.load(f"{directory}{filename.value}")
+    with open(f"{directory}{filename.value}", 'rb') as file:
+        data = pickle.load(file)
+    return data
 
 
 def divide_chunks(data: List[Any], n: int):
     k, m = divmod(len(data), n)
     return [data[i * k + min(i, m): (i + 1) * k + min(i + 1, m)] for i in range(n)]
-
-def create_shared_memory_nparray(data, name:str, dtype:np.dtype, shape:tuple):
-    d_size = np.dtype(dtype).itemsize * np.prod(shape)
-    shm = shared_memory.SharedMemory(create=True, size=d_size, name=name)
-    dst = np.ndarray(shape=shape, dtype=dtype, buffer=shm.buf)
-    dst[:] = data[:]
-    print(f'NP SIZE: {(dst.nbytes / 1024) / 1024}')
-    return shm, dst
-
-
-def release_shared(name):
-    shm = shared_memory.SharedMemory(name=name)
-    shm.close()
-    shm.unlink()

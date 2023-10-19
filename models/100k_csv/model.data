@@ -1,0 +1,5 @@
+K = 3
+Iteration = 10/10
+Loss = 298.2351
+Training RMSE = 0.7282
+Testing RMSE = 0.9079

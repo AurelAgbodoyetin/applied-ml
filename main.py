@@ -1,18 +1,13 @@
-from typing import List
-from sparse_matrix import SparseMatrix
+from datasets import datasets
+from als_model import ALSModel
 
-latent_dims: List[int] = [3, 5, 10, 20, 50, 100]
-tau_: float = .1
-epochs: int = 30
-lambda_: float = .1
-gamma_: float = .1
 
 if __name__ == "__main__":
-    test = SparseMatrix(
-        dataset_name="100k",
-        n_iter=15,
-        dims=4,
-        tau=.01,
+    test = ALSModel(
+        dataset=datasets['100k_csv'],
+        n_iter=10,
+        dims=3,
+        tau=.1,
         lambd=.01,
         gamma=.01,
         mu=.0,
@@ -20,4 +15,8 @@ if __name__ == "__main__":
         n_jobs=8,
     )
 
-    test.perform_als(parallel=True, dims=2)
+    # test.train(parallel=True, plot=True, save_best=True)
+    test.load_parameters()
+    recommendations = test.get_recommendations_for_user(90)
+    print("Recommendations")
+    print(recommendations)
