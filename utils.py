@@ -29,7 +29,6 @@ class Filename(Enum):
     i_features = "item_features_data_blob.pkl"
 
 
-
 def get_empty_blob(length: int):
     blob = []
     for i in range(length):
@@ -37,9 +36,15 @@ def get_empty_blob(length: int):
     return blob
 
 
+def blob_report(blob: blob_type, kind: str):
+    total = 0
+    for data in blob:
+        total = total + len(data)
+    print(f"{kind} : {total} ratings")
+
+
 def check_and_create(data: Any, filename: Filename, directory: str):
     if not os.path.isfile(f"{directory}{filename}"):
-        print(f"Writing {filename} to {directory}")
         if not os.path.exists(directory):
             os.makedirs(directory)
         save(data=data, filename=filename, directory=directory)
@@ -47,12 +52,14 @@ def check_and_create(data: Any, filename: Filename, directory: str):
 
 @timebudget
 def save(data: Any, filename: Filename, directory: str):
+    print(f"Saving data to {directory}{filename}")
     with open(f"{directory}{filename}", 'wb') as file:
         pickle.dump(data, file)
 
 
 @timebudget
 def load(filename: Filename, directory: str):
+    print(f"Loading data from {directory}{filename.value}")
     with open(f"{directory}{filename.value}", 'rb') as file:
         data = pickle.load(file)
     return data

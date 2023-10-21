@@ -9,7 +9,7 @@ from timebudget import timebudget
 from collections import Counter
 
 from custom_types import blob_type, dict_type, reverse_dict_type, feature_blob_type
-from utils import get_empty_blob
+from utils import get_empty_blob, blob_report
 
 np.random.seed(seed=42)
 
@@ -77,73 +77,66 @@ class DataProvider:
     def index_data_file(self, lines: List[str]) -> None:
         user_indexes = os.path.isfile(f"{self.dir}{Filename.u_indexes.value}")
         item_indexes = os.path.isfile(f"{self.dir}{Filename.i_indexes.value}")
-        if user_indexes and item_indexes:
-            print("Indexes already exist, loading ...")
+        feature_indexes = os.path.isfile(f"{self.dir}{Filename.f_indexes.value}")
+        if user_indexes and item_indexes and feature_indexes:
             self.item_indexes = load(filename=Filename.i_indexes, directory=self.dir)
             self.user_indexes = load(filename=Filename.u_indexes, directory=self.dir)
             self.feature_indexes = load(filename=Filename.f_indexes, directory=self.dir)
             self.feature_index_name = load(filename=Filename.f_ind_n, directory=self.dir)
             self.feature_name_index = load(filename=Filename.f_n_ind, directory=self.dir)
         else:
-            print("Started indexing ...")
-            for i in tqdm.trange(len(lines)):
+            for i in tqdm.trange(len(lines), ascii=True):
                 self.index_line(lines[i])
-
             check_and_create(data=self.user_indexes, filename=Filename.u_indexes.value, directory=self.dir)
             check_and_create(data=self.item_indexes, filename=Filename.i_indexes.value, directory=self.dir)
 
             with open("data/items.genre") as file:
                 features = file.readlines()
-                for i in tqdm.trange(len(features)):
+                for i in tqdm.trange(len(features), ascii=True):
                     self.index_line(features[i], is_feature=True)
 
                 check_and_create(data=self.feature_indexes, filename=Filename.f_indexes.value, directory=self.dir)
                 check_and_create(data=self.feature_name_index, filename=Filename.f_n_ind.value, directory=self.dir)
                 check_and_create(data=self.feature_index_name, filename=Filename.f_ind_n.value, directory=self.dir)
 
-                print(self.feature_indexes)
-                print(self.feature_name_index)
-                print(self.feature_index_name)
-
     @timebudget
-    def extract_set_ds(self, lines: List[str], is_test: bool = False, is_whole: bool = False) -> None:
-        print(f"Started extraction whole: {is_whole} test: {is_test}")
-        test_size = int(np.round(len(lines) * self.split_ratio))
-        data_to_use: List[str] = lines if is_whole else lines[-test_size:] if is_test else lines[:-test_size]
-        self.get_data_from_lines(data_to_use, is_test, is_whole)
-
-        if is_whole:
-            print("Whole sparse matrix extraction complete")
-        else:
-            if is_test:
-                print("Test sparse matrix extraction complete")
-            else:
-                print("Train sparse matrix extraction complete")
-
-    def get_data_from_lines(self, lines: List[str], is_test: bool, is_whole: bool) -> None:
-        for line in lines:
-            content = line.split(self.dataset.sep)
+    def extract_set_ds(self, lines: List[str]) -> None:
+        print(f"Started extraction whole file DS")
+        for i in tqdm.trange(len(lines), ascii=True):
+            content = lines[i].split(self.dataset.sep)
             uid: str = content[0]
             iid: str = content[1]
             rating = float(content[2])
-
             u_index = self.user_indexes[uid]
             i_index = self.item_indexes[iid]
 
-            if is_whole:
-                self.user_data_blob[u_index].append((i_index, rating))
-                self.item_data_blob[i_index].append((u_index, rating))
-            else:
-                if is_test:
-                    self.user_testing_set[u_index].append((self.item_indexes[iid], rating))
-                    self.item_testing_set[i_index].append((self.user_indexes[uid], rating))
-                else:
-                    self.user_training_set[u_index].append((self.item_indexes[iid], rating))
-                    self.item_training_set[i_index].append((self.user_indexes[uid], rating))
+            self.user_data_blob[u_index].append((i_index, rating))
+            self.item_data_blob[i_index].append((u_index, rating))
+
+    @timebudget
+    def extract_train_test_sets(self) -> None:
+        print(f"Started Train - Test extraction")
+        for u_index in tqdm.trange(len(self.user_data_blob), ascii=True):
+            user_data = self.user_data_blob[u_index]
+            test_size = int(np.round(len(user_data) * self.split_ratio))
+            train = user_data[:-test_size]
+            test = user_data[-test_size:]
+            self.user_training_set[u_index] = train
+            self.user_testing_set[u_index] = test
+
+            for data in train:
+                i_index = data[0]
+                rating = data[1]
+                self.item_training_set[i_index].append((u_index, rating))
+
+            for data in test:
+                i_index = data[0]
+                rating = data[1]
+                self.item_testing_set[i_index].append((u_index, rating))
 
     def get_feature_blobs(self):
         items_file_lines = self.read_file(path=self.dataset.items_path, shuffle=False)
-        for i in tqdm.trange(len(items_file_lines)):
+        for i in tqdm.trange(len(items_file_lines), ascii=True):
             content = items_file_lines[i].split(self.dataset.items_sep)
             iid: str = content[0]
             if iid not in self.item_indexes:
@@ -211,19 +204,21 @@ class DataProvider:
         plt.show()
 
     def extract_all_file_ds(self):
-        self.extract_set_ds(self.ratings_file_lines, is_whole=True)
+        self.extract_set_ds(self.ratings_file_lines)
         check_and_create(data=self.user_data_blob, filename=Filename.u_all.value, directory=self.dir)
         check_and_create(data=self.item_data_blob, filename=Filename.i_all.value, directory=self.dir)
 
-    def extract_train_set_ds(self):
-        self.extract_set_ds(self.ratings_file_lines, is_whole=False, is_test=False)
+    def extract_train_test_sets_ds(self):
+        self.extract_train_test_sets()
         check_and_create(data=self.user_training_set, filename=Filename.u_train.value, directory=self.dir)
         check_and_create(data=self.item_training_set, filename=Filename.i_train.value, directory=self.dir)
-
-    def extract_test_set_ds(self):
-        self.extract_set_ds(self.ratings_file_lines, is_test=True)
         check_and_create(data=self.user_testing_set, filename=Filename.u_test.value, directory=self.dir)
         check_and_create(data=self.item_testing_set, filename=Filename.i_test.value, directory=self.dir)
+
+    def blobs_report(self):
+        blob_report(self.user_data_blob, kind="All")
+        blob_report(self.user_training_set, kind="Training")
+        blob_report(self.user_testing_set, kind="Testing")
 
 
 if __name__ == "__main__":
@@ -234,13 +229,14 @@ if __name__ == "__main__":
             split_ratio=.2,
         )
         data_provider.extract_all_file_ds()
-        data_provider.extract_test_set_ds()
-        data_provider.extract_train_set_ds()
-        # data_provider.plot_all_file_ds(save_figure=True)
-        # data_provider.plot_ratings_distribution()
+        data_provider.extract_train_test_sets_ds()
+        data_provider.blobs_report()
 
+        data_provider.plot_power_law(save_figure=True)
+        data_provider.plot_ratings_distribution(save_figure=True)
         data_provider.get_feature_blobs()
-        data_provider.plot_item_count_by_genre()
+        data_provider.plot_item_count_by_genre(save_figure=True)
+
         return data_provider
 
 
