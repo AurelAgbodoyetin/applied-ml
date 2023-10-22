@@ -18,8 +18,6 @@ datasets: Dict[str, Dataset] = {
     '100k_csv': Dataset(path="data/100k_csv/ratings.csv", sep=",", name="100k_csv",
                         items_path="data/100k_csv/movies.csv", items_sep=",", skip_rows=1),
     '1m': Dataset(path="data/1m/ratings.dat", sep="::", name="1m", items_path="data/1m/movies.dat", items_sep="::"),
-    '10m': Dataset(path="../datasets/10M/ratings.dat", sep="::", name="10m", items_path="data/10m/movies.dat",
-                   items_sep=","),
     '25m': Dataset(path="../datasets/25M/ratings.csv", sep=",", skip_rows=1, name="25m",
-                   items_path="../datasets/25M/movies.csv", items_sep="::"),
+                   items_path="../datasets/25M/movies.csv", items_sep=",", features_sep="|"),
 }

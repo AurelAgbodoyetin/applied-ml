@@ -135,22 +135,26 @@ class DataProvider:
                 self.item_testing_set[i_index].append((u_index, rating))
 
     def get_feature_blobs(self):
+        skipped = 0
+        count = 0
         items_file_lines = self.read_file(path=self.dataset.items_path, shuffle=False)
         for i in tqdm.trange(len(items_file_lines), ascii=True):
             content = items_file_lines[i].split(self.dataset.items_sep)
             iid: str = content[0]
             if iid not in self.item_indexes:
                 print(f"{iid} found but not indexed, skipping ...")
+                skipped = skipped + 1
                 continue
 
             item_index: int = self.item_indexes[iid]
-            features_lst: List[str] = content[-1].split(self.dataset.features_sep)
-            for feature in features_lst:
-                self.feature_items_data_blob[self.feature_name_index[feature.rstrip()]].append(item_index)
-                self.item_features_data_blob[item_index].append(self.feature_name_index[feature.rstrip()])
-
-        check_and_create(data=self.feature_items_data_blob, filename=Filename.f_items.value, directory=self.dir)
-        check_and_create(data=self.item_features_data_blob, filename=Filename.i_features.value, directory=self.dir)
+            features_list: List[str] = content[-1].split(self.dataset.features_sep)
+            for feature in features_list:
+                count = count + 1
+                feature_index = self.feature_name_index[feature.rstrip()]
+                self.feature_items_data_blob[feature_index].append(item_index)
+                self.item_features_data_blob[item_index].append(feature_index)
+        print(f"Counted {count} items")
+        print(f"Skipped {skipped} items")
 
     def plot_power_law(self, save_figure: bool = True) -> None:
         u_degrees: List[int] = [len(ratings) for ratings in self.user_data_blob]
@@ -194,8 +198,8 @@ class DataProvider:
         plt.figure(figsize=(12, 8))
         plt.barh(features, counts)
         plt.grid(color='grey', linestyle='-.', linewidth=0.5, alpha=0.5)
-        plt.xlabel("Feature")
-        plt.ylabel("Count")
+        plt.xlabel("Items count")
+        # plt.ylabel("Count")
         plt.title("Items count by feature")
 
         if save_figure:
@@ -208,6 +212,10 @@ class DataProvider:
         check_and_create(data=self.user_data_blob, filename=Filename.u_all.value, directory=self.dir)
         check_and_create(data=self.item_data_blob, filename=Filename.i_all.value, directory=self.dir)
 
+        self.get_feature_blobs()
+        check_and_create(data=self.feature_items_data_blob, filename=Filename.f_items.value, directory=self.dir)
+        check_and_create(data=self.item_features_data_blob, filename=Filename.i_features.value, directory=self.dir)
+
     def extract_train_test_sets_ds(self):
         self.extract_train_test_sets()
         check_and_create(data=self.user_training_set, filename=Filename.u_train.value, directory=self.dir)
@@ -219,6 +227,7 @@ class DataProvider:
         blob_report(self.user_data_blob, kind="All")
         blob_report(self.user_training_set, kind="Training")
         blob_report(self.user_testing_set, kind="Testing")
+        blob_report(self.feature_items_data_blob, kind="Features")
 
 
 if __name__ == "__main__":
@@ -234,10 +243,10 @@ if __name__ == "__main__":
 
         data_provider.plot_power_law(save_figure=True)
         data_provider.plot_ratings_distribution(save_figure=True)
-        data_provider.get_feature_blobs()
         data_provider.plot_item_count_by_genre(save_figure=True)
 
         return data_provider
 
 
-    provider = get_sparse_matrices_and_dump(dataset=datasets['100k_csv'])
+    # provider = get_sparse_matrices_and_dump(dataset=datasets['100k_csv'])
+    provider = get_sparse_matrices_and_dump(dataset=datasets['25m'])

@@ -36,7 +36,7 @@ def get_empty_blob(length: int):
     return blob
 
 
-def blob_report(blob: blob_type, kind: str):
+def blob_report(blob, kind: str):
     total = 0
     for data in blob:
         total = total + len(data)

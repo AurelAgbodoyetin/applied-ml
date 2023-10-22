@@ -1,35 +1,48 @@
+from random import sample
 from typing import List, Tuple
 import numpy as np
 from matplotlib import pyplot as plt
 from timebudget import timebudget
 from concurrent.futures import ThreadPoolExecutor
 from datasets import Dataset
-from utils import Filename, load, check_and_create
+from utils import Filename, load, check_and_create, get_empty_blob
 import tqdm
-from custom_types import blob_type, dict_type, np_type, reverse_dict_type
+from custom_types import blob_type, dict_type, np_type, reverse_dict_type, feature_blob_type
 
 np.random.seed(seed=42)
 
 
 class ALSModel:
     @timebudget
-    def __init__(self, dataset: Dataset, n_iter: int = 20, dims: int = 3, parallel: bool = False, tau: float = .01,
-                 lambd: float = .01, gamma: float = .01, mu: float = .0, save_figures=False, n_jobs: int = 2):
+    def __init__(self, dataset: Dataset, biases_only: bool, use_features: bool, n_iter: int = 20, dims: int = 3,
+                 parallel: bool = False, tau: float = .01, lambd: float = .01, gamma: float = .01, mu: float = .0,
+                 save_figures=False, n_jobs: int = 2):
 
         self.dumps_dir: str = f"dumps/{dataset.name}/"
         self.fig_dir: str = f"figures/{dataset.name}/"
         self.models_dir: str = f"models/{dataset.name}/"
-        self.dataset: Dataset = dataset
+
         self.user_testing_set: blob_type = []
         self.user_training_set: blob_type = []
         self.user_data_blob: blob_type = []
         self.user_indexes: dict_type = {}
         self.reverse_user_indexes: reverse_dict_type = {}
+
         self.item_testing_set: blob_type = []
         self.item_data_blob: blob_type = []
         self.item_training_set: blob_type = []
         self.item_indexes: dict_type = {}
         self.reverse_item_indexes: reverse_dict_type = {}
+        self.feature_indexes: dict_type = {}
+
+        self.feature_index_name: reverse_dict_type = {}
+        self.feature_name_index: dict_type = {}
+        self.feature_items_data_blob: feature_blob_type = []
+        self.item_features_data_blob: feature_blob_type = []
+
+        self.dataset: Dataset = dataset
+        self.biases_only = biases_only
+        self.use_features = use_features
         self.save_figures: bool = save_figures
         self.parallel: bool = parallel
 
@@ -51,6 +64,9 @@ class ALSModel:
         self.item_biases = np.zeros((len(self.item_indexes)))
         self.user_vector = np.random.normal(self.mu, self.sigma, size=(len(self.user_indexes), self.latent_dims))
         self.item_vector = np.random.normal(self.mu, self.sigma, size=(len(self.item_indexes), self.latent_dims))
+        # TODO Remove one here
+        # self.feature_vector = np.random.normal(self.mu, self.sigma, size=(len(self.item_indexes), self.latent_dims))
+        self.feature_vector = np.zeros((len(self.feature_indexes), self.latent_dims))
 
     def load_dataset(self):
         self.item_indexes = load(filename=Filename.i_indexes, directory=self.dumps_dir)
@@ -67,31 +83,55 @@ class ALSModel:
         self.user_training_set = load(filename=Filename.u_train, directory=self.dumps_dir)
         self.user_testing_set = load(filename=Filename.u_test, directory=self.dumps_dir)
 
+        self.feature_indexes = load(filename=Filename.f_indexes, directory=self.dumps_dir)
+        self.feature_name_index = load(filename=Filename.f_n_ind, directory=self.dumps_dir)
+        self.feature_index_name = load(filename=Filename.f_ind_n, directory=self.dumps_dir)
+        print(f"Features : {len(self.feature_indexes)}")
+        self.feature_items_data_blob = load(filename=Filename.f_items, directory=self.dumps_dir)
+        self.item_features_data_blob = load(filename=Filename.i_features, directory=self.dumps_dir)
+
     def log_likelihood(self) -> float:
         s: float = 0
         for m in range(len(self.user_biases)):
             for n, r in self.user_training_set[m]:
-                error = np.dot(self.user_vector[m], self.item_vector[n]) + self.user_biases[m] + self.item_biases[n]
+                if self.biases_only:
+                    error = self.user_biases[m] + self.item_biases[n]
+                else:
+                    error = np.dot(self.user_vector[m], self.item_vector[n]) + self.user_biases[m] + self.item_biases[n]
                 error = (r - error) ** 2
                 s = s + error
 
-        loss = - self.lambda_ * s / 2
+        error_term = - self.lambda_ * s / 2
 
-        user_vector_term: float = 0
-        for m in range(len(self.user_biases)):
-            user_vector_term = user_vector_term + np.dot(self.user_vector[m], self.user_vector[m])  # .T
-
-        user_vector_term: float = - user_vector_term * self.tau_ / 2
         user_biases_regularizer = - np.dot(self.user_biases, self.user_biases) * self.gamma_ / 2
-
-        item_vector_term: float = 0
-        for n in range(len(self.item_biases)):
-            item_vector_term = item_vector_term + np.dot(self.item_vector[n], self.item_vector[n])  # .T
-
-        item_vector_term: float = - item_vector_term * self.tau_ / 2
         item_biases_regularizer = - np.dot(self.item_biases, self.item_biases) * self.gamma_ / 2
 
-        loss = loss + user_vector_term + item_vector_term + user_biases_regularizer + item_biases_regularizer
+        user_vector_term: float = 0
+        item_vector_term: float = 0
+        if not self.biases_only:
+            for m in range(len(self.user_biases)):
+                user_vector_term = user_vector_term + np.dot(self.user_vector[m], self.user_vector[m])
+            user_vector_term = - user_vector_term * self.tau_ / 2
+
+            for n in range(len(self.item_biases)):
+                v_center = np.zeros(self.latent_dims)
+                if self.use_features:
+                    fl = np.zeros(self.latent_dims)
+                    for feature_index in self.item_features_data_blob[n]:
+                        fl = fl + self.feature_vector[feature_index]
+                    v_center = fl / np.sqrt(len(self.item_features_data_blob[n]))
+                item_vector_term = item_vector_term + np.dot(self.item_vector[n] - v_center,
+                                                             self.item_vector[n] - v_center)
+            item_vector_term = - item_vector_term * self.tau_ / 2
+
+        feature_vector_term: float = 0
+        if self.use_features:
+            for f in range(len(self.feature_indexes)):
+                feature_vector_term = feature_vector_term + np.dot(self.feature_vector[f], self.feature_vector[f])
+            feature_vector_term = - feature_vector_term * self.tau_ / 2
+
+        loss = (error_term + user_vector_term + item_vector_term + feature_vector_term + user_biases_regularizer +
+                item_biases_regularizer)
         return loss
 
     def update_users(self, users: List[int]):
@@ -105,19 +145,20 @@ class ALSModel:
 
             self.user_biases[user_index] = bias / (self.lambda_ * item_counter + self.gamma_)
 
-            tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
-            s: np_type = np.zeros((self.latent_dims, self.latent_dims))
-            b: np_type = np.zeros(self.latent_dims)
+            if not self.biases_only:
+                tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
+                s: np_type = np.zeros((self.latent_dims, self.latent_dims))
+                b: np_type = np.zeros(self.latent_dims)
 
-            for item_index, rating in self.user_training_set[user_index]:
-                s = s + np.outer(self.item_vector[item_index], self.item_vector[item_index])
-                b = b + self.item_vector[item_index, :] * (
-                        rating - self.user_biases[user_index] - self.item_biases[item_index])
+                for item_index, rating in self.user_training_set[user_index]:
+                    s = s + np.outer(self.item_vector[item_index], self.item_vector[item_index])
+                    b = b + self.item_vector[item_index, :] * (
+                            rating - self.user_biases[user_index] - self.item_biases[item_index])
 
-            a: np_type = self.lambda_ * s + tau_matrix
-            b: np_type = self.lambda_ * b
-            l: np_type = np.linalg.cholesky(a)
-            self.user_vector[user_index] = np.linalg.inv(l.T) @ np.linalg.inv(l) @ b
+                a: np_type = self.lambda_ * s + tau_matrix
+                b: np_type = self.lambda_ * b
+                l: np_type = np.linalg.cholesky(a)
+                self.user_vector[user_index] = np.linalg.inv(l.T) @ np.linalg.inv(l) @ b
 
     def update_items(self, items: List[int]):
         for item_index in items:
@@ -130,29 +171,46 @@ class ALSModel:
 
             self.item_biases[item_index] = bias / (self.lambda_ * user_counter + self.gamma_)
 
-            tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
-            s: np_type = np.zeros((self.latent_dims, self.latent_dims))
-            b: np_type = np.zeros(self.latent_dims)
+            if not self.biases_only:
+                tau_matrix: np_type = self.tau_ * np.eye(self.latent_dims)
+                s: np_type = np.zeros((self.latent_dims, self.latent_dims))
+                b: np_type = np.zeros(self.latent_dims)
+                features_term: np_type = np.zeros(self.latent_dims)
 
-            for (user_index, rating) in self.item_training_set[item_index]:
-                s = s + np.outer(self.user_vector[user_index], self.user_vector[user_index])
-                b = b + self.user_vector[user_index] * (
-                        rating - self.user_biases[user_index] - self.item_biases[item_index])
+                for (user_index, rating) in self.item_training_set[item_index]:
+                    s = s + np.outer(self.user_vector[user_index], self.user_vector[user_index])
+                    b = b + self.user_vector[user_index] * (
+                            rating - self.user_biases[user_index] - self.item_biases[item_index])
 
-            a: np_type = self.lambda_ * s + tau_matrix
-            b: np_type = self.lambda_ * b
-            l: np_type = np.linalg.cholesky(a)
+                if self.use_features:
+                    for feature_index in self.item_features_data_blob[item_index]:
+                        features_term = features_term + self.feature_vector[feature_index]
 
-            self.item_vector[item_index] = np.linalg.inv(l.T) @ np.linalg.inv(l) @ b
+                a: np_type = self.lambda_ * s + tau_matrix
+                b = self.lambda_ * b + self.tau_ * features_term
+                l: np_type = np.linalg.cholesky(a)
+                self.item_vector[item_index] = np.linalg.inv(l.T) @ np.linalg.inv(l) @ b
+
+    def update_features(self, features: List[int]):
+        for feature_index in features:
+            s_fn = 0
+            s_vec = np.zeros(self.latent_dims)
+            feature_items = self.feature_items_data_blob[feature_index]
+            for item_index in feature_items:
+                fn = len(self.item_features_data_blob[item_index])
+                s_fn = s_fn + fn
+                s_vec = s_vec + self.item_vector[item_index] / np.sqrt(fn)
+            self.feature_vector[feature_index] = (1 / (1 + s_fn)) * s_vec
 
     @timebudget
     def train(self, save_best: bool, plot: bool, parallel=None, dims=None, tau=None, lambd=None, gamma=None,
-              epochs=None) -> None:
+              epochs=None, biases_only=None) -> None:
         if dims is not None:
             self.latent_dims = dims
             self.user_vector = np.random.normal(self.mu, self.sigma, size=(len(self.user_indexes), self.latent_dims))
             self.item_vector = np.random.normal(self.mu, self.sigma, size=(len(self.item_indexes), self.latent_dims))
 
+        self.biases_only = self.biases_only if biases_only is None else biases_only
         self.tau_ = self.tau_ if tau is None else tau
         self.epochs = self.epochs if epochs is None else epochs
         self.parallel = self.parallel if parallel is None else parallel
@@ -163,14 +221,17 @@ class ALSModel:
         # Getting data ready
         number_of_users: int = len(self.user_indexes)
         number_of_items: int = len(self.item_indexes)
+        number_of_features: int = len(self.feature_indexes)
         for epoch in tqdm.trange(self.epochs, ascii=True):
             if self.parallel:
                 with ThreadPoolExecutor(max_workers=self.n_jobs) as executor:
                     executor.submit(self.update_users, list(range(number_of_users)))
                     executor.submit(self.update_items, list(range(number_of_items)))
+                    executor.submit(self.update_features, list(range(number_of_features)))
             else:
                 self.update_users(list(range(number_of_users)))
                 self.update_items(list(range(number_of_items)))
+                self.update_features(list(range(number_of_features)))
 
             loss = self.log_likelihood()
             training_rmse = self.rmse(is_test=False)
@@ -185,7 +246,7 @@ class ALSModel:
 
             if epoch + 1 == self.epochs:
                 print(f"K = {self.latent_dims} --> Iteration {epoch + 1} : Loss = {-loss:.4f} , "
-                      f"Training cost = {training_rmse:.4f}, Testing cost = {testing_rmse:.4f}")
+                      f"Training RMSE = {training_rmse:.4f}, Testing RMSE = {testing_rmse:.4f}")
 
         if plot:
             self.plot_losses()
@@ -194,22 +255,42 @@ class ALSModel:
     def save_parameters(self, iteration, loss, training_rmse, testing_rmse):
         check_and_create(data=self.user_vector, filename=Filename.u_vec.value, directory=self.models_dir)
         check_and_create(data=self.item_vector, filename=Filename.i_vec.value, directory=self.models_dir)
+        check_and_create(data=self.feature_vector, filename=Filename.f_vec.value, directory=self.models_dir)
         check_and_create(data=self.user_biases, filename=Filename.u_b.value, directory=self.models_dir)
         check_and_create(data=self.item_biases, filename=Filename.i_b.value, directory=self.models_dir)
         with open(f'{self.models_dir}model.data', 'w') as f:
-            f.write(f"K = {self.latent_dims}\nIteration = {iteration}/{self.epochs}\nLoss = {-loss:.4f}\n"
-                    f"Training RMSE = {training_rmse:.4f}\nTesting RMSE = {testing_rmse:.4f}")
+            f.write(f"biases_only={self.biases_only}\nuse_features={self.use_features}\nK = {self.latent_dims}\n"
+                    f"Iteration = {iteration}/{self.epochs}\nLoss = {-loss:.4f}\nTraining RMSE = {training_rmse:.4f}\n"
+                    f"Testing RMSE = {testing_rmse:.4f}")
 
     def load_parameters(self):
-        self.user_vector = load(filename=Filename.u_vec, directory=self.models_dir)
-        self.item_vector = load(filename=Filename.i_vec, directory=self.models_dir)
+        perf = []
+        biases_only: bool = False
+        use_features: bool = False
+
+        with open(f'{self.models_dir}model.data', 'r') as f:
+            for index, line in enumerate(f.readlines()):
+                if index == 0:
+                    biases_only = bool(line.split("=")[1])
+                elif index == 1:
+                    use_features = bool(line.split("=")[1])
+                else:
+                    perf.append(line)
+
         self.user_biases = load(filename=Filename.u_b, directory=self.models_dir)
         self.item_biases = load(filename=Filename.i_b, directory=self.models_dir)
+
+        if not biases_only:
+            self.user_vector = load(filename=Filename.u_vec, directory=self.models_dir)
+            self.item_vector = load(filename=Filename.i_vec, directory=self.models_dir)
+
+        if use_features:
+            self.feature_vector = load(filename=Filename.f_vec, directory=self.models_dir)
+
         print("MODEL LOADED")
-        with open(f'{self.models_dir}model.data', 'r') as f:
-            for line in f.readlines():
-                print(line, end="")
-            print()
+        for line in perf:
+            print(line, end="")
+        print()
 
     def get_parameters_str(self) -> str:
         return '\n'.join((
@@ -326,3 +407,36 @@ class ALSModel:
         top_item_ratings = [pair[1] for pair in top_items]
         item_ids, item_names = self.get_items_from_file(top_item_indexes)
         return tuple(zip(item_ids, item_names, top_item_ratings))
+
+    def plot_game_feature_vectors_embedded(self, item_per_feature=5, save_figure: bool = True):
+        features_items_vectors = get_empty_blob(len(self.feature_indexes))
+        markers = [".", "o", "v", "^", "<", ">", "1", "2", "3", "4", "s", "p", "P", "*", "h", "+", "x", "d", "D", "H"]
+        labels = [key for key in self.feature_name_index]
+        plt.figure(figsize=(13, 9))
+        for feature_index, feature_items in enumerate(self.feature_items_data_blob):
+            if feature_items:
+                random_items = sample(feature_items, k=item_per_feature)
+                for item_index in random_items:
+                    item_vector = self.item_vector[item_index]
+                    features_items_vectors[feature_index].append((item_vector[0], item_vector[1], item_index))
+
+        for feature_index, feature_items_vectors in enumerate(features_items_vectors):
+            if feature_items_vectors:
+                random_text = sample(feature_items_vectors, k=1)
+                xs = [feature_items_vector[0] for feature_items_vector in feature_items_vectors]
+                ys = [feature_items_vector[1] for feature_items_vector in feature_items_vectors]
+                plt.scatter(xs, ys, marker=markers[feature_index], s=50)
+                for item_to_text in random_text:
+                    id_, name_ = self.get_items_from_file([item_to_text[2]])
+                    text = name_[0].split('(')[0]
+                    plt.annotate(text, (item_to_text[0], item_to_text[1]))
+
+        plt.grid(color='grey', linestyle='-.', linewidth=0.5, alpha=0.5)
+        plt.title(r"Movie feature vectors embedded in $\mathbb{R}^2$, tagged by genre")
+        plt.legend(labels, bbox_to_anchor=(1.2, 0.6), loc='center right')
+        plt.tight_layout()
+
+        if save_figure:
+            plt.savefig(f'{self.fig_dir}item_vectors_embedding.pdf')
+
+        plt.show()
