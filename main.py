@@ -1,18 +1,21 @@
+from data_provider import get_sparse_matrices_and_dump
 from datasets import datasets
 import multiprocessing as mp
 from als_model import ALSModel
 
 
 if __name__ == "__main__":
+    # provider = get_sparse_matrices_and_dump(dataset=datasets['10m'])
+    
     test = ALSModel(
-        dataset=datasets['1m'],
-        # dataset=datasets['100k_csv'],
+        dataset=datasets['10m'],
+        # dataset=datasets['100k'],
         biases_only=False,
         use_features=True,
-        n_iter=30,
-        dims=3,
-        tau=.1,
-        lambd=.01,
+        n_iter=10,
+        dims=2,
+        tau=.01,
+        lambd=.1,
         gamma=.01,
         mu=.0,
         save_figures=True,
@@ -20,8 +23,11 @@ if __name__ == "__main__":
     )
 
     # test.train(parallel=True, plot=True, save_best=True)
-    test.load_parameters()
-    # recommendations = test.get_recommendations_for_user(90)
+    # test.load_parameters()
+    # recommendations = test.get_recommendations_for_user(9)
     # print("Recommendations")
     # print(recommendations)
-    test.plot_game_feature_vectors_embedded(save_figure=True)
+    # test.plot_item_vectors_embedded(save_figure=True)
+    # test.plot_feature_vectors_embedded(save_figure=True)
+    # test.plot_feature_and_items_vectors_embedded(feature_index=5, save_figure=True)
+    # test.get_user_rated_one_item_recommendations(item_index=2)

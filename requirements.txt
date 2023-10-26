@@ -1,4 +1,4 @@
 matplotlib~=3.5.1
-numpy~=1.19.5
+numpy==1.24.3
 timebudget==0.7.1
 tqdm==4.66.1

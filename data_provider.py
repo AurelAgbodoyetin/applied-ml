@@ -4,12 +4,10 @@ import numpy as np
 import tqdm
 from matplotlib import pyplot as plt
 from datasets import Dataset, datasets
-from utils import check_and_create, Filename, load
+from utils import check_and_create, Filename, load, get_empty_blob, blob_report
 from timebudget import timebudget
 from collections import Counter
-
 from custom_types import blob_type, dict_type, reverse_dict_type, feature_blob_type
-from utils import get_empty_blob, blob_report
 
 np.random.seed(seed=42)
 
@@ -229,24 +227,20 @@ class DataProvider:
         blob_report(self.user_testing_set, kind="Testing")
         blob_report(self.feature_items_data_blob, kind="Features")
 
+@timebudget
+def get_sparse_matrices_and_dump(dataset: Dataset):
+    data_provider: DataProvider = DataProvider(
+        dataset=dataset,
+        split_ratio=.2,
+    )
+    data_provider.extract_all_file_ds()
+    data_provider.extract_train_test_sets_ds()
+    data_provider.blobs_report()
+    data_provider.plot_power_law(save_figure=True)
+    data_provider.plot_ratings_distribution(save_figure=True)
+    data_provider.plot_item_count_by_genre(save_figure=True)
+    return data_provider
 
 if __name__ == "__main__":
-    @timebudget
-    def get_sparse_matrices_and_dump(dataset: Dataset):
-        data_provider: DataProvider = DataProvider(
-            dataset=dataset,
-            split_ratio=.2,
-        )
-        data_provider.extract_all_file_ds()
-        data_provider.extract_train_test_sets_ds()
-        data_provider.blobs_report()
-
-        data_provider.plot_power_law(save_figure=True)
-        data_provider.plot_ratings_distribution(save_figure=True)
-        data_provider.plot_item_count_by_genre(save_figure=True)
-
-        return data_provider
-
-
-    # provider = get_sparse_matrices_and_dump(dataset=datasets['100k_csv'])
-    provider = get_sparse_matrices_and_dump(dataset=datasets['25m'])
+    provider = get_sparse_matrices_and_dump(dataset=datasets['100k'])
+    # provider = get_sparse_matrices_and_dump(dataset=datasets['10m'])

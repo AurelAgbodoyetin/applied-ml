@@ -4,6 +4,7 @@ import pickle
 from timebudget import timebudget
 import os
 from enum import Enum
+from prettytable import PrettyTable
 
 
 class Filename(Enum):
@@ -64,6 +65,14 @@ def load(filename: Filename, directory: str):
         data = pickle.load(file)
     return data
 
+
+def printTable(data):
+    table = PrettyTable()
+    table.field_names = ['N', 'ID', 'Name', 'Rating']
+    for i, row in enumerate(data):
+        table.add_row([f'{i + 1}', row[0], row[1], row[2]])
+
+    print(table)
 
 def divide_chunks(data: List[Any], n: int):
     k, m = divmod(len(data), n)

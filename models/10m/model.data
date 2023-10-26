@@ -1,0 +1,7 @@
+biases_only=False
+use_features=True
+K = 2
+Iteration = 15/15
+Loss = 26859.2674
+Training RMSE = 0.7956
+Testing RMSE = 0.8239
