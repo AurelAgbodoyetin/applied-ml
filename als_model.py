@@ -1,3 +1,4 @@
+import pickle
 from random import sample
 from typing import List, Tuple
 import numpy as np
@@ -16,7 +17,7 @@ class ALSModel:
     @timebudget
     def __init__(self, dataset: Dataset, biases_only: bool, use_features: bool, n_iter: int = 20, dims: int = 3,
                  parallel: bool = False, tau: float = .01, lambd: float = .01, gamma: float = .01, mu: float = .0,
-                 save_figures=False, n_jobs: int = 2):
+                 save_figures=False, n_jobs: int = 2, monitor: bool = False, save_history: bool = False):
 
         self.dumps_dir: str = f"dumps/{dataset.name}/"
         self.fig_dir: str = f"figures/{dataset.name}/"
@@ -45,6 +46,8 @@ class ALSModel:
         self.use_features = use_features
         self.save_figures: bool = save_figures
         self.parallel: bool = parallel
+        self.monitor: bool = monitor
+        self.save_history: bool = save_history
 
         # Initializing model hyper parameters
         self.epochs: int = n_iter
@@ -64,9 +67,7 @@ class ALSModel:
         self.item_biases = np.zeros((len(self.item_indexes)))
         self.user_vector = np.random.normal(self.mu, self.sigma, size=(len(self.user_indexes), self.latent_dims))
         self.item_vector = np.random.normal(self.mu, self.sigma, size=(len(self.item_indexes), self.latent_dims))
-        # TODO Remove one here
         self.feature_vector = np.random.normal(self.mu, self.sigma, size=(len(self.item_indexes), self.latent_dims))
-        # self.feature_vector = np.zeros((len(self.feature_indexes), self.latent_dims))
 
     def load_dataset(self):
         self.item_indexes = load(filename=Filename.i_indexes, directory=self.dumps_dir)
@@ -188,7 +189,7 @@ class ALSModel:
 
                 fn = len(self.item_features_data_blob[item_index])
                 a: np_type = self.lambda_ * s + tau_matrix
-                b = self.lambda_ * b + self.tau_/np.sqrt(fn) * features_term
+                b = self.lambda_ * b + self.tau_ / np.sqrt(fn) * features_term
                 l: np_type = np.linalg.cholesky(a)
                 self.item_vector[item_index] = np.linalg.inv(l.T) @ np.linalg.inv(l) @ b
 
@@ -199,24 +200,25 @@ class ALSModel:
             feature_items = self.feature_items_data_blob[feature_index]
             for item_index in feature_items:
                 fn = len(self.item_features_data_blob[item_index])
-                s_fn = s_fn + 1/fn
+                s_fn = s_fn + 1 / fn
                 s_fl = np.zeros(self.latent_dims)
                 for l in self.item_features_data_blob[item_index]:
                     if l != feature_index:
                         s_fl = s_fl + self.feature_vector[l]
 
-                s_vec = s_vec + self.item_vector[item_index] / np.sqrt(fn) - 1/fn * s_fl
+                s_vec = s_vec + self.item_vector[item_index] / np.sqrt(fn) - 1 / fn * s_fl
             self.feature_vector[feature_index] = (1 / (1 + s_fn)) * s_vec
 
     @timebudget
     def train(self, save_best: bool, plot: bool, parallel=None, dims=None, tau=None, lambd=None, gamma=None,
-              epochs=None, biases_only=None) -> None:
+              epochs=None, biases_only=None, use_features=None) -> None:
         if dims is not None:
             self.latent_dims = dims
             self.user_vector = np.random.normal(self.mu, self.sigma, size=(len(self.user_indexes), self.latent_dims))
             self.item_vector = np.random.normal(self.mu, self.sigma, size=(len(self.item_indexes), self.latent_dims))
 
         self.biases_only = self.biases_only if biases_only is None else biases_only
+        self.use_features = self.use_features if use_features is None else use_features
         self.tau_ = self.tau_ if tau is None else tau
         self.epochs = self.epochs if epochs is None else epochs
         self.parallel = self.parallel if parallel is None else parallel
@@ -254,10 +256,29 @@ class ALSModel:
                 print(f"K = {self.latent_dims} --> Iteration {epoch + 1} : Loss = {-loss:.4f} , "
                       f"Training RMSE = {training_rmse:.4f}, Testing RMSE = {testing_rmse:.4f}")
 
+                if self.monitor:
+                    self.write_training_details_to_file(training_rmse, testing_rmse)
+
+                if self.save_history:
+                    model_name = f"k_{self.latent_dims}_history_model_B"
+                    if self.biases_only:
+                        model_name = f"k_{self.latent_dims}_history_model_A"
+                    else:
+                        if self.use_features:
+                            model_name = f"k_{self.latent_dims}_history_model_C"
+
+                    with open(f"{self.dumps_dir}{model_name}.pkl", 'wb') as file:
+                        pickle.dump(self.history, file)
+
         if plot:
             self.plot_losses()
             self.plot_rmse()
-    
+
+    def write_training_details_to_file(self, training_rmse: float, testing_rmse: float):
+        new_line = f"{self.latent_dims},{self.tau_},{self.lambda_},{self.gamma_},{training_rmse:.4f},{testing_rmse:.4f},{testing_rmse - training_rmse:.4f}\n"
+        with open("recap.csv", "a") as file:
+            file.write(new_line)
+
     def rmse(self, is_test) -> float:
         targets, predictions = self.get_predictions(is_test)
         mse = np.square(np.subtract(targets, predictions)).mean()
@@ -313,13 +334,13 @@ class ALSModel:
 
         plt.show()
 
-    def predict(self, m: int, n: int, is_rmse=True, user_vector:np_type = None, rate:float = 0.001):
+    def predict(self, m: int, n: int, is_rmse=True, user_vector: np_type = None, rate: float = 0.001):
         if user_vector is None:
             user_vector = self.user_vector[m]
         if is_rmse:
             return np.inner(user_vector, self.item_vector[n]) + self.user_biases[m] + self.item_biases[n]
         else:
-            return np.inner(user_vector, self.item_vector[n]) + self.item_biases[n] * rate + self.user_biases[m] * rate
+            return np.inner(user_vector, self.item_vector[n]) + self.item_biases[n] * rate
 
     def get_predictions(self, is_test) -> (List[float], List[float]):
         user_map = self.user_indexes
@@ -377,14 +398,15 @@ class ALSModel:
         predictions = tuple(zip(item_ids, item_names, top_item_ratings))
         printTable(predictions)
         return predictions
-    
-    def get_user_rated_one_item_recommendations(self, item_index:int, count: int = 10):
+
+    def get_user_rated_one_item_recommendations(self, item_index: int, count: int = 10):
         item_id, item_name = self.get_items_from_file([item_index])
         print(f"Recommendations for user that 5 star rated {item_name[0]}")
         predicted_ratings = []
         user_item_indexes = [i for i in range(len(self.item_indexes)) if i != item_index]
         for item_index in user_item_indexes:
-            predicted_ratings.append(self.predict(0, item_index, is_rmse=False, user_vector=self.item_vector[item_index], rate=0.05))
+            predicted_ratings.append(
+                self.predict(0, item_index, is_rmse=False, user_vector=self.item_vector[item_index], rate=0.05))
 
         top_items = sorted(tuple(zip(user_item_indexes, predicted_ratings)), key=lambda x: x[1], reverse=True)[:count]
         top_item_indexes = [pair[0] for pair in top_items]
@@ -401,7 +423,8 @@ class ALSModel:
         plt.figure(figsize=(13, 9))
         for feature_index, feature_items in enumerate(self.feature_items_data_blob):
             if feature_items:
-                random_items = sample(feature_items, k=item_per_feature)
+                ss = min(len(feature_items), item_per_feature)
+                random_items = sample(feature_items, k=ss)
                 for item_index in random_items:
                     item_vector = self.item_vector[item_index]
                     features_items_vectors[feature_index].append((item_vector[0], item_vector[1], item_index))
@@ -444,7 +467,7 @@ class ALSModel:
 
         plt.show()
 
-    def plot_feature_and_items_vectors_embedded(self, feature_index:int, save_figure: bool = True):
+    def plot_feature_and_items_vectors_embedded(self, feature_index: int, save_figure: bool = True):
         feature_vector = self.feature_vector[feature_index]
         feature_name = self.feature_index_name[feature_index]
         xs = []
@@ -461,15 +484,37 @@ class ALSModel:
         plt.annotate(feature_name, xy=(feature_vector[0], feature_vector[1]))
 
         plt.grid(color='grey', linestyle='-.', linewidth=0.5, alpha=0.5)
-        plt.title(f"{feature_name} movie vectors embedded in" + r"$\mathbb{R}^2$")
+        plt.title(f"{feature_name} movie vectors embedded in " + r"$\mathbb{R}^2$")
         plt.legend(["Items vectors", "Feature vector"], bbox_to_anchor=(1.2, 0.6), loc='center right')
+        plt.tight_layout()
+
+        if save_figure:
+            plt.savefig(f'{self.fig_dir}{feature_name}_feature_and_item_vectors_embedding.pdf')
+
+        plt.show()
+    
+    def plot_feature_items_vectors_embedded(self, feature_index: int, save_figure: bool = True):
+        feature_name = self.feature_index_name[feature_index]
+        xs = []
+        ys = []
+       
+        plt.figure(figsize=(13, 9))
+        for item_index in self.feature_items_data_blob[feature_index]:
+            item_vector = self.item_vector[item_index]
+            xs.append(item_vector[0])
+            ys.append(item_vector[1])
+
+        plt.scatter(xs, ys, marker="o", s=50)
+
+        plt.grid(color='grey', linestyle='-.', linewidth=0.5, alpha=0.5)
+        plt.title(f"Items vectors embedded in " + r"$\mathbb{R}^2$")
         plt.tight_layout()
 
         if save_figure:
             plt.savefig(f'{self.fig_dir}{feature_name}_item_vectors_embedding.pdf')
 
         plt.show()
-    
+
     def save_parameters(self, iteration, loss, training_rmse, testing_rmse):
         check_and_create(data=self.user_vector, filename=Filename.u_vec.value, directory=self.models_dir)
         check_and_create(data=self.item_vector, filename=Filename.i_vec.value, directory=self.models_dir)
@@ -482,30 +527,23 @@ class ALSModel:
                     f"Testing RMSE = {testing_rmse:.4f}")
 
     def load_parameters(self):
-        perf = []
-        biases_only: bool = False
-        use_features: bool = False
-
         with open(f'{self.models_dir}model.data', 'r') as f:
             for index, line in enumerate(f.readlines()):
-                if index == 0:
-                    biases_only = bool(line.split("=")[1])
-                elif index == 1:
-                    use_features = bool(line.split("=")[1])
-                else:
-                    perf.append(line)
+                print(line, end="")
+            print()
 
         self.user_biases = load(filename=Filename.u_b, directory=self.models_dir)
         self.item_biases = load(filename=Filename.i_b, directory=self.models_dir)
 
-        if not biases_only:
+        if not self.biases_only:
             self.user_vector = load(filename=Filename.u_vec, directory=self.models_dir)
             self.item_vector = load(filename=Filename.i_vec, directory=self.models_dir)
 
-        if use_features:
+        if self.use_features:
             self.feature_vector = load(filename=Filename.f_vec, directory=self.models_dir)
 
         print("MODEL LOADED")
-        for line in perf:
-            print(line, end="")
+        # print("MODEL A LOADED" if biases_only else "MODEL C LOADED" if use_features else "MODEL B LOADED")
+        # for line in perf:
+        #     print(line, end="")
         print()

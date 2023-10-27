@@ -1,7 +1,7 @@
 biases_only=False
-use_features=True
+use_features=False
 K = 2
-Iteration = 5/10
-Loss = 2221.3072
-Training RMSE = 0.6979
-Testing RMSE = 1.1061
+Iteration = 3/10
+Loss = 1260.4920
+Training RMSE = 0.7266
+Testing RMSE = 1.0583
