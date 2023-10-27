@@ -33,7 +33,7 @@ if __name__ == "__main__":
     provider = get_sparse_matrices_and_dump(dataset=datasets['1m'])
 
     test = ALSModel(
-        dataset=datasets['10m'],
+        dataset=datasets['1m'],
         biases_only=False,
         use_features=True,
         n_iter=10,
